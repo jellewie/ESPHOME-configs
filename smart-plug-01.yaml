@@ -1,0 +1,159 @@
+substitutions:
+  device_name: "smart-plug-01"
+  project_name: "athom.smart-plug-v2" #By.ProjectName
+  project_version: "1.1"               #Hardware
+  project_comment: "some name" #Name in ESPhome tab
+
+esphome:
+  name: "${device_name}"
+  name_add_mac_suffix: false
+  platform: ESP8266
+  board: esp8285
+  comment: "${project_comment}"
+  project:
+    name: "${project_name}"
+    version: "${project_version}"
+
+#web_server:        #[OPTIONAL] Example configuration entry
+#logger:            #[OPTIONAL] Enable logging
+api:                #Enable Home Assistant API
+ota:                #Enable Over The Air updates
+  password: !secret ota_password
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:               #Enable fallback hotspot (captive portal) in case wifi connection fails
+    ssid: "${device_name} FH"
+captive_portal:
+
+dashboard_import:
+  package_import_url: github://athom-tech/athom-configs/athom-smart-plug-v2.yaml
+
+uart:
+  rx_pin: RX
+  baud_rate: 4800
+
+binary_sensor:
+  - platform: status  # Extra sensor for the connection state
+    name: "${device_name} status"
+    disabled_by_default: true
+  - platform: gpio
+    pin:
+      number: 5
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "${device_name} Button"
+    disabled_by_default: true
+    on_multi_click:
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 0.2s
+        then:
+          - switch.toggle: relay
+      - timing:
+          - ON for at least 4s
+        then:
+          - button.press: restart_button
+
+sensor:
+  - platform: cse7766
+    update_interval: 1s
+    current:
+      name: "${device_name} Current"
+      disabled_by_default: true
+      filters:
+        - lambda: if (id(relay).state){ return x; } else { return 0.0; }
+       #- lambda: if (id(relay).state){ if (x < 0.060) return 0.0; else return x; } else { return 0.0; }
+       #- lambda: if (x < 0.060) return 0.0; else return x;  #For the chip will report less than 3w power when no load is connected
+        - sliding_window_moving_average:
+            window_size: 60
+            send_every: 60
+    voltage:
+      name: "${device_name} Voltage"
+      disabled_by_default: true
+      filters:
+        - sliding_window_moving_average:
+            window_size: 60
+            send_every: 60
+    power:
+      name: "${device_name} Power"
+      id: power_sensor
+      filters:
+          - lambda: if (id(relay).state){ return x; } else { return 0.0; }
+         #- lambda: if (id(relay).state){ if (x < 3.0) return 0.0; else return x; } else { return 0.0; }
+         #- lambda: if (x < 3.0) return 0.0; else return x;  #For the chip will report less than 3w power when no load is connected
+          - sliding_window_moving_average:
+              window_size: 60
+              send_every: 60
+    energy:
+      name: "${device_name} Energy"
+      unit_of_measurement: kWh
+      filters:
+        - multiply: 0.001  #Multiplication factor from W to kW is 0.001
+        - sliding_window_moving_average:
+            window_size: 60
+            send_every: 60
+  - platform: total_daily_energy
+    name: "${device_name} Total Daily Energy"
+    disabled_by_default: true
+    restore: true
+    power_id: power_sensor
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+  
+  - platform: uptime  # Extra sensor to keep track of plug uptime
+    name: "${device_name} Uptime"
+    filters:
+      - lambda: return x / 3600;
+    unit_of_measurement: "h"
+    accuracy_decimals: 0
+    disabled_by_default: true
+  - platform: wifi_signal # Extra sensor for WiFi signal
+    name: "${device_name} WiFi"
+    update_interval: 300s
+    disabled_by_default: true
+
+switch:
+  - platform: gpio
+    name: "${device_name}"
+    pin: GPIO12 #Red + Relay
+    id: relay
+    #restore_mode: RESTORE_DEFAULT_OFF #https://esphome.io/components/switch/index.html
+
+  - platform: template
+    name: "${device_name} State"
+    lambda: if (id(power_sensor).state > 1 ) {return true;} else {return false;}
+    turn_on_action:
+      - switch.toggle: relay
+    turn_off_action:
+      - switch.toggle: relay
+    disabled_by_default: true
+
+light:
+  - platform: status_led
+    name: "${device_name} Status LED"
+    disabled_by_default: true
+    pin:
+      inverted: true
+      number: GPIO13 #Blue
+      
+text_sensor:
+  - platform: wifi_info #https://esphome.io/components/text_sensor/index.html
+    ip_address:
+      name: "${device_name} IP"
+      disabled_by_default: true
+    mac_address:
+      name: "${device_name} MAC"
+      disabled_by_default: true
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "${device_name} Restart"
+    disabled_by_default: true
+
+time:
+  - platform: sntp
+    id: my_time
