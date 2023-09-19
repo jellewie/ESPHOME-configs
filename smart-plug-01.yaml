@@ -27,7 +27,7 @@ wifi:
 captive_portal:
 
 dashboard_import:
-  package_import_url: github://athom-tech/athom-configs/athom-smart-plug-v2.yaml
+  package_import_url: github://jellewie/ESPHOME-configs/blob/main/smart-plug-01.yaml
 
 uart:
   rx_pin: RX
